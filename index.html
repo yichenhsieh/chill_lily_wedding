@@ -1,0 +1,209 @@
+
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="referrer" content="no-referrer" />
+  <title>婚禮座位查詢</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 24px 16px;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: #fbf6f0;
+      color: #55483f;
+      font-family: Arial, "Noto Sans TC", sans-serif;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 420px;
+      padding: 32px 24px;
+      background: white;
+      border-radius: 22px;
+      box-shadow: 0 8px 30px #8c73551a;
+      text-align: center;
+    }
+
+    .flower { font-size: 36px; }
+
+    h1 {
+      font-size: 26px;
+      margin: 12px 0 8px;
+    }
+
+    .subtitle {
+      color: #8a7b70;
+      font-size: 14px;
+      line-height: 1.8;
+    }
+
+    button {
+      width: 100%;
+      margin-top: 24px;
+      padding: 14px;
+      border: 0;
+      border-radius: 12px;
+      background: #92765c;
+      color: white;
+      font-size: 16px;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: wait;
+    }
+
+    .result {
+      margin-top: 22px;
+      padding: 20px 12px;
+      border-radius: 14px;
+      background: #faf5ef;
+      line-height: 1.9;
+      overflow-wrap: anywhere;
+    }
+
+    .name { font-size: 22px; font-weight: bold; }
+    .table-number {
+      margin: 12px 0;
+      color: #876647;
+      font-size: 40px;
+      font-weight: bold;
+    }
+
+    .message {
+      margin-top: 18px;
+      font-size: 14px;
+      line-height: 1.8;
+      overflow-wrap: anywhere;
+    }
+
+    [hidden] { display: none !important; }
+  </style>
+</head>
+
+<body>
+  <main class="card">
+    <div class="flower">💐</div>
+    <h1>婚禮座位查詢</h1>
+    <p class="subtitle">
+      歡迎參加我們的婚禮<br />
+      讓我們一起分享這份喜悅
+    </p>
+
+    <button id="searchBtn" hidden>查詢我的座位</button>
+    <div id="message" class="message" role="status">
+      正在準備查詢……
+    </div>
+    <section id="result" class="result" hidden>
+      <div class="name" id="guestName"></div>
+      <div>您的宴席桌次</div>
+      <div class="table-number" id="tableNumber"></div>
+      <div id="guestCount"></div>
+      <p>期待與您相見！</p>
+    </section>
+  </main>
+
+  <script>
+    // 請替換成自己的 Supabase 專案資訊
+    
+    const SUPABASE_URL = "https://pzexcoaknkpihkjxhvze.supabase.co";
+    const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_f-6oJLkU4iQoc0JMS-PJzw_xHKDl8c2";
+
+    const message = document.getElementById("message");
+    const result = document.getElementById("result");
+    const button = document.getElementById("searchBtn");
+
+    let supabaseClient;
+    let token;
+
+    function showMessage(text) {
+      message.textContent = text;
+      message.hidden = false;
+    }
+
+    async function lookupGuest() {
+      button.disabled = true;
+      result.hidden = true;
+      showMessage("正在查詢您的座位……");
+
+      try {
+        const { data, error } = await supabaseClient.rpc(
+          "get_guest_seat",
+          { p_token: token }
+        );
+
+        if (error) {
+          console.error("Supabase RPC error:", error);
+          showMessage("目前無法完成查詢，請稍後再試或聯絡婚禮工作人員。");
+          return;
+        }
+
+        if (!data || data.length === 0) {
+          showMessage("查無有效的座位資料，請確認邀請連結或聯絡工作人員。");
+          return;
+        }
+
+        const guest = data[0];
+
+        document.getElementById("guestName").textContent =
+          guest.name ?? "親愛的賓客";
+
+        document.getElementById("tableNumber").textContent =
+          guest.actual_table_number == null
+            ? "待安排"
+            : `${guest.actual_table_number} 桌`;
+
+        document.getElementById("guestCount").textContent =
+          `預計出席人數：${guest.expected_count ?? "待確認"} 人`;
+
+        message.hidden = true;
+        result.hidden = false;
+      } catch (err) {
+        console.error(err);
+        showMessage("連線發生問題，請稍後再試。");
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    async function init() {
+      if (
+        !SUPABASE_URL.startsWith("https://") ||
+        SUPABASE_URL.includes("請填入") ||
+        SUPABASE_PUBLISHABLE_KEY.includes("請填入")
+      ) {
+        showMessage("請先填入 Supabase Project URL 與 Publishable Key。");
+        return;
+      }
+
+      token = new URLSearchParams(window.location.search).get("token");
+
+      if (!token) {
+        showMessage("請從您的專屬婚禮邀請連結進入。");
+        return;
+      }
+
+      supabaseClient = window.supabase.createClient(
+        SUPABASE_URL,
+        SUPABASE_PUBLISHABLE_KEY
+      );
+
+      button.hidden = false;
+      showMessage("已準備好查詢，請點擊下方按鈕。");
+      button.addEventListener("click", lookupGuest);
+    }
+
+    init();
+  </script>
+</body>
+</html>
