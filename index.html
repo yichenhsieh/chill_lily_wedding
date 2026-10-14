@@ -158,13 +158,25 @@
         document.getElementById("guestName").textContent =
           guest.name ?? "親愛的賓客";
 
-        document.getElementById("tableNumber").textContent =
-          guest.actual_table_number == null
-            ? "座位安排中，請於婚禮前再次查詢"
-            : `${guest.actual_table_number} 桌`;
+   
+const tableElement = document.getElementById("tableNumber");
+
+if (guest.actual_table_number == null) {
+  tableElement.textContent = "座位安排中";
+  tableElement.style.fontSize = "clamp(24px, 6vw, 36px)";
+  tableElement.style.lineHeight = "1.5";
+} else {
+  tableElement.textContent =
+    `${guest.actual_table_number} 桌`;
+  tableElement.style.fontSize = "";
+  tableElement.style.lineHeight = "";
+}
+
 
         document.getElementById("guestCount").textContent =
           `預計出席人數：${guest.expected_count ?? "待確認"} 人`;
+
+        
 
         message.hidden = true;
         result.hidden = false;
