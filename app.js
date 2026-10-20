@@ -32,7 +32,26 @@ const displayGuest=(g)=>{
  $('checkinBtn').disabled=done;$('changeTable').value=g.actual_table_number??'';
  $('seatSection').classList.toggle('hidden',staff?.staff_role!=='admin');
 };
-const findByToken=async(token)=>{const rows=await rpc('lookup_wedding_guest',{p_token:token});const g=Array.isArray(rows)?rows[0]:rows;if(!g)throw new Error('查無此 QR Code 對應的賓客。');displayGuest({...g,qr_token:token});$('searchResults').replaceChildren();setStatus('已找到賓客，請核對姓名與人數。',false,true);};
+// Existing invitation QR codes contain a seat-lookup URL with ?token=...
+// Accept either that exact URL format or a raw token. Never navigate to scanned URLs.
+const extractGuestToken = raw => {
+ const value=String(raw??'').trim();
+ if(!value)throw new Error('QR Code 沒有內容。');
+ if(/^https?:\/\//i.test(value)){
+   let url;
+   try{url=new URL(value);}catch(e){throw new Error('QR Code 網址格式不正確。');}
+   if(url.protocol!=='https:' || url.hostname!=='yichenhsieh.github.io' ||
+      !['/chill_lily_wedding/','/chill_lily_wedding/index.html'].includes(url.pathname)){
+     throw new Error('這不是 Chill & Lily 的婚禮賓客 QR Code。');
+   }
+   const token=url.searchParams.get('token');
+   if(!token?.trim())throw new Error('QR Code 網址缺少 token，請檢查原始 QR Code。');
+   return token.trim();
+ }
+ if(value.includes('://') || value.includes('?') || value.includes('#'))throw new Error('QR Code 格式無法辨識。');
+ return value;
+};
+const findByToken=async(raw)=>{const token=extractGuestToken(raw);const rows=await rpc('lookup_wedding_guest',{p_token:token});const g=Array.isArray(rows)?rows[0]:rows;if(!g)throw new Error('查無此 QR Code 對應的賓客。');displayGuest({...g,qr_token:token});$('searchResults').replaceChildren();setStatus('已找到賓客，請核對姓名與人數。',false,true);};
 const search=async()=>{const q=val('searchInput');if(q.length<1){$('searchResults').replaceChildren();return;}try{const rows=await rpc('search_wedding_guests',{p_query:q});const list=$('searchResults');list.replaceChildren();if(!rows?.length){list.textContent='找不到符合的賓客。';return;}
  rows.forEach(g=>{const item=document.createElement('div');item.className='guest';const label=document.createElement('div');label.textContent=`${guestName(g)} · 第 ${g.actual_table_number??'—'} 桌 · ${g.expected_count??0} 人`;
  const btn=document.createElement('button');btn.type='button';btn.className='btn secondary small';btn.textContent='選取賓客';btn.addEventListener('click',()=>{displayGuest(g);setStatus('已選取賓客，請核對資訊。');});item.append(label,btn);list.append(item);});
