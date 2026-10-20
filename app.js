@@ -3,7 +3,7 @@
 'use strict';
 const $ = id => document.getElementById(id);
 const cfg = window.WEDDING_CONFIG;
-let db, currentUser=null, staff=null, selected=null, stream=null, detector=null, scanLoop=false, searchTimer=null, dashboardTimer=null;
+let db, currentUser=null, staff=null, selected=null, stream=null, detector=null, scanLoop=false, html5Scanner=null, scannerBusy=false, searchTimer=null, dashboardTimer=null;
 const page = document.body.dataset.page;
 const setStatus=(message,isError=false,ok=false)=>{const el=$('status');if(!el)return;el.textContent=message;el.className='status'+(isError?' error':ok?' ok':'');};
 const show=(id,yes)=>{const el=$(id);if(el)el.classList.toggle('hidden',!yes);};
@@ -43,10 +43,41 @@ const checkin=async()=>{if(!selected)return;const n=Number($('checkinCount').val
 const changeSeat=async()=>{if(!selected||staff?.staff_role!=='admin')return;const table=Number(val('changeTable'));if(!Number.isSafeInteger(table)||table<1){setStatus('請輸入正確的新桌號（正整數）。',true);return;}
  if(!window.confirm(`確定將「${guestName(selected)}」改至第 ${table} 桌？`))return;
  $('seatBtn').disabled=true;try{await rpc('change_wedding_guest_table',{p_token:selected.qr_token,p_new_table:table});await findByToken(selected.qr_token);setStatus('桌次已更新。',false,true);}catch(e){setStatus('換桌失敗：'+errorText(e),true);}finally{$('seatBtn').disabled=false;}};
-const stopScanner=()=>{scanLoop=false;if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;}if($('video'))$('video').srcObject=null;show('scannerBox',false);};
-const scanFrame=async()=>{if(!scanLoop||!stream||!detector)return;try{const codes=await detector.detect($('video'));if(codes.length){const raw=codes[0].rawValue;stopScanner();$('tokenInput').value=raw;await findByToken(raw);return;}}catch(e){setStatus('掃描發生錯誤：'+errorText(e),true);stopScanner();return;}if(scanLoop)requestAnimationFrame(scanFrame);};
-const startScanner=async()=>{if(!('BarcodeDetector' in window)){setStatus('此瀏覽器不支援內建 QR 掃描，請改用手動輸入 QR 內容，或使用支援的 Chrome 瀏覽器。',true);return;}
- try{detector=new BarcodeDetector({formats:['qr_code']});stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});show('scannerBox',true);$('video').srcObject=stream;await $('video').play();scanLoop=true;requestAnimationFrame(scanFrame);}catch(e){stopScanner();setStatus('無法開啟相機：'+errorText(e),true);}};
+const stopScanner=async()=>{
+ scanLoop=false;
+ if(html5Scanner){
+   const scanner=html5Scanner; html5Scanner=null;
+   try{await scanner.stop();}catch(e){}
+   try{scanner.clear();}catch(e){}
+ }
+ if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;}
+ show('scannerBox',false);
+};
+const startScanner=async()=>{
+ if(scannerBusy||html5Scanner)return;
+ if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia){
+   setStatus('無法使用相機：請使用 HTTPS 網址並允許瀏覽器相機權限。',true);return;
+ }
+ if(!window.Html5Qrcode){setStatus('QR 掃描程式庫載入失敗，請確認網路連線並重新整理。',true);return;}
+ scannerBusy=true;
+ show('scannerBox',true);
+ setStatus('正在啟動相機，請允許相機權限……');
+ try{
+   const scanner=new Html5Qrcode('qrReader',{verbose:false});
+   html5Scanner=scanner;
+   const onScan=async raw=>{
+     if(!html5Scanner||scannerBusy)return;
+     scannerBusy=true;
+     await stopScanner();
+     $('tokenInput').value=raw;
+     try{await findByToken(raw);}catch(e){setStatus('QR Code 查詢失敗：'+errorText(e),true);}
+     finally{scannerBusy=false;}
+   };
+   await scanner.start({facingMode:'environment'}, {fps:10,qrbox:(w,h)=>({width:Math.min(240,w),height:Math.min(240,h)})},onScan,()=>{});
+   setStatus('相機已開啟，請將賓客 QR Code 對準畫面。',false,true);
+ }catch(e){await stopScanner();setStatus('無法開啟相機：'+errorText(e)+'。請檢查相機權限，或改用手動輸入。',true);}
+ finally{scannerBusy=false;}
+};
 const refreshDashboard=async()=>{try{const data=await rpc('wedding_dashboard_stats');const d=Array.isArray(data)?data[0]:data;if(!d)throw new Error('無法取得統計資料');
  $('totalGuests').textContent=number(d.total_guests);$('arrivedGuests').textContent=number(d.arrived_guests);$('expectedPeople').textContent=number(d.expected_people);$('arrivedPeople').textContent=number(d.arrived_people);
  $('remainingPeople').textContent=Math.max(0,number(d.expected_people)-number(d.arrived_people));$('updatedAt').textContent=new Date().toLocaleTimeString('zh-TW');setStatus('統計已更新。',false,true);
