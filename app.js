@@ -1,0 +1,70 @@
+/* Chill & Lily staff app. All writes go through authenticated, role-checked RPCs. */
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const cfg = window.WEDDING_CONFIG;
+let db, currentUser=null, staff=null, selected=null, stream=null, detector=null, scanLoop=false, searchTimer=null, dashboardTimer=null;
+const page = document.body.dataset.page;
+const setStatus=(message,isError=false,ok=false)=>{const el=$('status');if(!el)return;el.textContent=message;el.className='status'+(isError?' error':ok?' ok':'');};
+const show=(id,yes)=>{const el=$(id);if(el)el.classList.toggle('hidden',!yes);};
+const val=id=>$(id)?.value?.trim()||'';
+const errorText=e=>e?.message||String(e);
+const rpc=async(name,args={})=>{const {data,error}=await db.rpc(name,args);if(error)throw error;return data;};
+const number=v=>Number.isFinite(Number(v))?Number(v):0;
+const checkAuth=async()=>{
+ const {data:{user},error}=await db.auth.getUser();if(error||!user){currentUser=null;staff=null;show('loginCard',true);show('workspace',false);show('logoutBtn',false);return;}
+ currentUser=user;
+ try{const profiles=await rpc('get_my_staff_profile');const p=Array.isArray(profiles)?profiles[0]:profiles;
+ if(!p||!['admin','reception'].includes(p.staff_role))throw new Error('此帳號沒有有效的婚禮工作人員權限。');
+ staff=p;show('loginCard',false);show('workspace',true);show('logoutBtn',true);$('staffName').textContent=p.display_name+' · '+(p.staff_role==='admin'?'管理員':'招待');
+ if(page==='dashboard'&&p.staff_role!=='admin'){show('workspace',false);setStatus('即時看板僅開放管理員查看。',true);return;}
+ setStatus('登入成功',false,true);if(page==='dashboard'){await refreshDashboard();startDashboardRefresh();}
+ }catch(e){show('loginCard',false);show('workspace',false);show('logoutBtn',true);setStatus(errorText(e),true);}
+};
+const login=async(e)=>{e.preventDefault();$('loginBtn').disabled=true;try{const {error}=await db.auth.signInWithPassword({email:val('email'),password:$('password').value});if(error)throw error;await checkAuth();}catch(e){setStatus(errorText(e),true);}finally{$('loginBtn').disabled=false;}};
+const logout=async()=>{stopScanner();stopDashboardRefresh();await db.auth.signOut();selected=null;await checkAuth();setStatus('已安全登出。');};
+const guestName=g=>g.name||'未命名賓客';
+const displayGuest=(g)=>{
+ selected=g;show('selectedGuest',true);$('guestName').textContent=guestName(g);$('guestTable').textContent=g.actual_table_number??'未安排';$('guestExpected').textContent=number(g.expected_count);
+ $('guestChecked').textContent=number(g.checked_in_count);const done=!!g.checked_in_at||g.checkin_status===true||g.checkin_status==='checked_in';
+ $('guestState').textContent=done?'已報到':'尚未報到';$('guestState').className='pill'+(done?' done':'');
+ $('checkinCount').value=done?number(g.checked_in_count):Math.max(1,number(g.expected_count));$('checkinCount').max=number(g.expected_count);
+ $('checkinBtn').disabled=done;$('changeTable').value=g.actual_table_number??'';
+ $('seatSection').classList.toggle('hidden',staff?.staff_role!=='admin');
+};
+const findByToken=async(token)=>{const rows=await rpc('lookup_wedding_guest',{p_token:token});const g=Array.isArray(rows)?rows[0]:rows;if(!g)throw new Error('查無此 QR Code 對應的賓客。');displayGuest({...g,qr_token:token});$('searchResults').replaceChildren();setStatus('已找到賓客，請核對姓名與人數。',false,true);};
+const search=async()=>{const q=val('searchInput');if(q.length<1){$('searchResults').replaceChildren();return;}try{const rows=await rpc('search_wedding_guests',{p_query:q});const list=$('searchResults');list.replaceChildren();if(!rows?.length){list.textContent='找不到符合的賓客。';return;}
+ rows.forEach(g=>{const item=document.createElement('div');item.className='guest';const label=document.createElement('div');label.textContent=`${guestName(g)} · 第 ${g.actual_table_number??'—'} 桌 · ${g.expected_count??0} 人`;
+ const btn=document.createElement('button');btn.type='button';btn.className='btn secondary small';btn.textContent='選取賓客';btn.addEventListener('click',()=>{displayGuest(g);setStatus('已選取賓客，請核對資訊。');});item.append(label,btn);list.append(item);});
+ }catch(e){setStatus('搜尋失敗：'+errorText(e),true);}};
+const checkin=async()=>{if(!selected)return;const n=Number($('checkinCount').value);if(!Number.isInteger(n)||n<1||n>number(selected.expected_count)){setStatus('報到人數必須介於 1 與預計人數之間。',true);return;}
+ if(!window.confirm(`確認「${guestName(selected)}」報到 ${n} 人？`))return;
+ $('checkinBtn').disabled=true;try{await rpc('check_in_wedding_guest',{p_token:selected.qr_token,p_count:n});await findByToken(selected.qr_token);setStatus('報到成功！',false,true);}catch(e){setStatus('報到失敗：'+errorText(e),true);$('checkinBtn').disabled=false;}};
+const changeSeat=async()=>{if(!selected||staff?.staff_role!=='admin')return;const table=Number(val('changeTable'));if(!Number.isSafeInteger(table)||table<1){setStatus('請輸入正確的新桌號（正整數）。',true);return;}
+ if(!window.confirm(`確定將「${guestName(selected)}」改至第 ${table} 桌？`))return;
+ $('seatBtn').disabled=true;try{await rpc('change_wedding_guest_table',{p_token:selected.qr_token,p_new_table:table});await findByToken(selected.qr_token);setStatus('桌次已更新。',false,true);}catch(e){setStatus('換桌失敗：'+errorText(e),true);}finally{$('seatBtn').disabled=false;}};
+const stopScanner=()=>{scanLoop=false;if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;}if($('video'))$('video').srcObject=null;show('scannerBox',false);};
+const scanFrame=async()=>{if(!scanLoop||!stream||!detector)return;try{const codes=await detector.detect($('video'));if(codes.length){const raw=codes[0].rawValue;stopScanner();$('tokenInput').value=raw;await findByToken(raw);return;}}catch(e){setStatus('掃描發生錯誤：'+errorText(e),true);stopScanner();return;}if(scanLoop)requestAnimationFrame(scanFrame);};
+const startScanner=async()=>{if(!('BarcodeDetector' in window)){setStatus('此瀏覽器不支援內建 QR 掃描，請改用手動輸入 QR 內容，或使用支援的 Chrome 瀏覽器。',true);return;}
+ try{detector=new BarcodeDetector({formats:['qr_code']});stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});show('scannerBox',true);$('video').srcObject=stream;await $('video').play();scanLoop=true;requestAnimationFrame(scanFrame);}catch(e){stopScanner();setStatus('無法開啟相機：'+errorText(e),true);}};
+const refreshDashboard=async()=>{try{const data=await rpc('wedding_dashboard_stats');const d=Array.isArray(data)?data[0]:data;if(!d)throw new Error('無法取得統計資料');
+ $('totalGuests').textContent=number(d.total_guests);$('arrivedGuests').textContent=number(d.arrived_guests);$('expectedPeople').textContent=number(d.expected_people);$('arrivedPeople').textContent=number(d.arrived_people);
+ $('remainingPeople').textContent=Math.max(0,number(d.expected_people)-number(d.arrived_people));$('updatedAt').textContent=new Date().toLocaleTimeString('zh-TW');setStatus('統計已更新。',false,true);
+ }catch(e){setStatus('看板更新失敗：'+errorText(e),true);}};
+const startDashboardRefresh=()=>{stopDashboardRefresh();dashboardTimer=setInterval(()=>{if(document.visibilityState==='visible')refreshDashboard();},15000);};
+const stopDashboardRefresh=()=>{if(dashboardTimer){clearInterval(dashboardTimer);dashboardTimer=null;}};
+const init=async()=>{if(!cfg?.supabasePublishableKey||cfg.supabasePublishableKey.startsWith('PASTE_')){setStatus('請先在 config.js 填入現有 Supabase Publishable Key（不是 Secret Key）。',true);return;}
+ if(!window.supabase){setStatus('無法載入 Supabase 程式庫，請檢查網路。',true);return;}
+ db=window.supabase.createClient(cfg.supabaseUrl,cfg.supabasePublishableKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+ $('loginForm').addEventListener('submit',login);$('logoutBtn').addEventListener('click',logout);
+ if(page==='staff'){
+ $('searchInput').addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(search,350);});
+ $('tokenForm').addEventListener('submit',async e=>{e.preventDefault();try{await findByToken(val('tokenInput'));}catch(err){setStatus(errorText(err),true);}});
+ $('checkinBtn').addEventListener('click',checkin);$('seatBtn').addEventListener('click',changeSeat);$('scanBtn').addEventListener('click',startScanner);$('stopScanBtn').addEventListener('click',stopScanner);
+ }else{$('refreshBtn').addEventListener('click',refreshDashboard);}
+ db.auth.onAuthStateChange((event)=>{if(event==='SIGNED_OUT'){stopScanner();stopDashboardRefresh();currentUser=null;staff=null;show('loginCard',true);show('workspace',false);show('logoutBtn',false);}});
+ await checkAuth();
+};
+window.addEventListener('pagehide',()=>{stopScanner();stopDashboardRefresh();});
+init().catch(e=>setStatus(errorText(e),true));
+})();
