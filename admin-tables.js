@@ -6,6 +6,14 @@
   const number = x => Number.isFinite(Number(x)) ? Number(x) : 0;
   if (!cfg?.supabaseUrl || !cfg?.supabasePublishableKey || !window.supabase) { status('無法載入 Supabase 設定。',true); return; }
   const db = window.supabase.createClient(cfg.supabaseUrl,cfg.supabasePublishableKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+  // 桌號與桌名分開儲存；請只修改右側名稱，不要更動桌號。
+  // 已從「婚禮座位安排 (2).xlsx」的「桌次名稱設定」讀入已填寫名稱。
+  const TABLE_NAMES = {
+    1: '主桌',
+    12: 'SAP 好同事',
+    // 例如：2: '新娘親友桌',
+  };
+  const tableName = table => TABLE_NAMES[table] || '';
   let guests=[];
   function render(){
     const term=$('filter').value.trim().toLowerCase();
@@ -16,9 +24,12 @@
     $('expected').textContent=guests.reduce((s,g)=>s+number(g.expected_count),0);
     $('arrived').textContent=guests.reduce((s,g)=>s+(g.is_checked_in?number(g.checked_in_count):0),0);
     for(const [table,people] of groups){
-      if(term && !String(table).includes(term) && !people.some(g=>String(g.guest_name||'').toLowerCase().includes(term)))continue;
+      if(term && !String(table).includes(term) && !tableName(table).toLowerCase().includes(term) && !people.some(g=>String(g.guest_name||'').toLowerCase().includes(term)))continue;
       const card=document.createElement('section');card.className='table-box';
-      const heading=document.createElement('h3');heading.textContent=`第 ${table} 桌`;card.append(heading);
+      const heading=document.createElement('h3');heading.textContent=`第 ${table} 桌`;
+      card.append(heading);
+      const displayName=document.createElement('div');displayName.className='table-display-name';
+      displayName.textContent=tableName(table) || '尚未設定桌名';card.append(displayName);
       const total=people.reduce((s,g)=>s+number(g.expected_count),0);
       const arrived=people.reduce((s,g)=>s+(g.is_checked_in?number(g.checked_in_count):0),0);
       const meta=document.createElement('div');meta.className='table-meta';meta.textContent=`預計 ${total} 人｜已到 ${arrived} 人｜${people.length} 筆名單`;card.append(meta);
@@ -47,13 +58,13 @@
       if(error)throw error;
       const rows=Array.isArray(data)?data:[];
       const ordered=[...rows].sort((a,b)=>number(a.table_number)-number(b.table_number)||String(a.guest_name||'').localeCompare(String(b.guest_name||''),'zh-Hant'));
-      const header=['桌次','賓客姓名','預計人數','已報到人數','報到狀態'];
+      const header=['桌次','桌次名稱','賓客姓名','預計人數','已報到人數','報到狀態'];
       const records=ordered.map(g=>[
-        g.table_number??'',g.guest_name??'',number(g.expected_count),
+        g.table_number??'',tableName(number(g.table_number)),g.guest_name??'',number(g.expected_count),
         g.is_checked_in?number(g.checked_in_count):0,g.is_checked_in?'已報到':'未報到'
       ]);
       // Include an empty reserve table row when no guests are assigned to table 30.
-      if(!ordered.some(g=>number(g.table_number)===30)) records.push([30,'（預備桌／尚未安排）',0,0,'']);
+      if(!ordered.some(g=>number(g.table_number)===30)) records.push([30,tableName(30),'（預備桌／尚未安排）',0,0,'']);
       const csv='\uFEFF'+[header,...records].map(r=>r.map(csvCell).join(',')).join('\r\n');
       const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
       const url=URL.createObjectURL(blob);
