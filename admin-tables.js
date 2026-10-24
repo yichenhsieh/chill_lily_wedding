@@ -41,6 +41,22 @@
     30: '新世代教會',
   };
   const tableName = table => TABLE_NAMES[table] || '';
+  // 嬰兒椅需求來自 2026/10/23 最新座位表；以姓名對照即時桌次。
+  const BABY_CHAIRS = {
+    "陳顯駿": 1,
+    "賴建和。張嘉芸。肉包": 1,
+    "劉映君": 2,
+    "高毓臨": 1,
+    "陳怡筠": 1,
+    "可可": 1,
+    "可樂": 1,
+    "林曉琪": 2,
+    "黃律禎 曾緯育": 1,
+    "莊采妮": 1,
+    "王博政": 1
+};
+  const chairCount = guest => BABY_CHAIRS[String(guest.guest_name||'').trim()] || 0;
+
   let guests=[];
   function render(){
     const term=$('filter').value.trim().toLowerCase();
@@ -50,6 +66,7 @@
     $('tablesCount').textContent=[...groups.values()].filter(a=>a.length).length;
     $('expected').textContent=guests.reduce((s,g)=>s+number(g.expected_count),0);
     $('arrived').textContent=guests.reduce((s,g)=>s+(g.is_checked_in?number(g.checked_in_count):0),0);
+    $('babyChairs').textContent=guests.reduce((s,g)=>s+chairCount(g),0);
     for(const [table,people] of groups){
       if(term && !String(table).includes(term) && !tableName(table).toLowerCase().includes(term) && !people.some(g=>String(g.guest_name||'').toLowerCase().includes(term)))continue;
       const card=document.createElement('section');card.className='table-box';
@@ -60,9 +77,11 @@
       const total=people.reduce((s,g)=>s+number(g.expected_count),0);
       const arrived=people.reduce((s,g)=>s+(g.is_checked_in?number(g.checked_in_count):0),0);
       const meta=document.createElement('div');meta.className='table-meta';meta.textContent=`預計 ${total} 人｜已到 ${arrived} 人｜${people.length} 筆名單`;card.append(meta);
+      const chairs=people.reduce((s,g)=>s+chairCount(g),0);
+      if(chairs){const chairBadge=document.createElement('div');chairBadge.className='chair-badge';chairBadge.textContent=`🪑 嬰兒椅 ${chairs} 張`;card.append(chairBadge);}
       if(!people.length){const empty=document.createElement('div');empty.className='empty';empty.textContent='目前沒有安排賓客';card.append(empty);}
       else {const ul=document.createElement('ul');ul.className='guest-list';for(const g of people){
-        const li=document.createElement('li');const name=document.createElement('span');name.textContent=g.guest_name||'未命名';
+        const li=document.createElement('li');const name=document.createElement('span');name.textContent=(g.guest_name||'未命名')+(chairCount(g)?` 🪑 嬰兒椅 ${chairCount(g)} 張`:'');
         const count=document.createElement('span');count.className=g.is_checked_in?'arrived':'pending';count.textContent=g.is_checked_in?`已到 ${number(g.checked_in_count)}/${number(g.expected_count)}`:`未到 · ${number(g.expected_count)} 人`;
         li.append(name,count);ul.append(li);
       }card.append(ul);}
@@ -85,13 +104,13 @@
       if(error)throw error;
       const rows=Array.isArray(data)?data:[];
       const ordered=[...rows].sort((a,b)=>number(a.table_number)-number(b.table_number)||String(a.guest_name||'').localeCompare(String(b.guest_name||''),'zh-Hant'));
-      const header=['桌次','桌次名稱','賓客姓名','預計人數','已報到人數','報到狀態'];
+      const header=['桌次','桌次名稱','賓客姓名','嬰兒椅張數','預計人數','已報到人數','報到狀態'];
       const records=ordered.map(g=>[
-        g.table_number??'',tableName(number(g.table_number)),g.guest_name??'',number(g.expected_count),
+        g.table_number??'',tableName(number(g.table_number)),g.guest_name??'',chairCount(g),number(g.expected_count),
         g.is_checked_in?number(g.checked_in_count):0,g.is_checked_in?'已報到':'未報到'
       ]);
       // Include an empty reserve table row when no guests are assigned to table 30.
-      if(!ordered.some(g=>number(g.table_number)===30)) records.push([30,tableName(30),'（預備桌／尚未安排）',0,0,'']);
+      if(!ordered.some(g=>number(g.table_number)===30)) records.push([30,tableName(30),'（預備桌／尚未安排）',0,0,0,'']);
       const csv='\uFEFF'+[header,...records].map(r=>r.map(csvCell).join(',')).join('\r\n');
       const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
       const url=URL.createObjectURL(blob);
