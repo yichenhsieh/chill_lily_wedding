@@ -13,6 +13,10 @@
   <div><div class="brand">CHILL & LILY · 2026.10.25</div><h1>婚禮招待報到</h1><div class="muted" id="staffName">工作人員專用</div></div>
   <div class="row"><a class="link" href="dashboard.html">新娘看板</a><button id="logoutBtn" class="btn secondary small hidden">登出</button></div>
 </header>
+<nav id="adminTabs" class="hidden" aria-label="管理員功能切換" style="margin:16px 0">
+  <a class="btn" href="staff.html" aria-current="page" style="text-decoration:none;display:inline-block;margin:4px">報到／調整桌次</a>
+  <a class="btn secondary" href="/chill_lily_wedding/admin-tables.html" style="text-decoration:none;display:inline-block;margin:4px">全員桌次查詢／匯出</a>
+</nav>
 <div id="status" class="status">正在載入……</div>
 <section id="loginCard" class="card hidden">
   <h2>工作人員快速登入</h2>
@@ -22,10 +26,10 @@
       <!-- 重要：將 YOUR_GMAIL 改成實際 Gmail @ 前的帳號名稱；若別名不同，請改為 Auth Users 的完整 Email。 -->
       <select id="staffSelect" required style="display:block;width:100%;padding:12px;border:1px solid #d6c9bf;border-radius:10px;background:white;font:inherit">
         <option value="">請選擇工作人員</option>
-        <option value="lilyhsieh2012+zhongqing@gmail.com">吳中慶｜管理員</option>
-        <option value="lilyhsieh2012+yixuan@gmail.com">林宜萱｜招待</option>
-        <option value="lilyhsieh2012+yicheng@gmail.com">王以誠｜招待</option>
-        <option value="lilyhsieh2012+xianting@gmail.com">謝獻霆｜招待</option>
+        <option value="YOUR_GMAIL+zhongqing@gmail.com">吳中慶｜管理員</option>
+        <option value="YOUR_GMAIL+yixuan@gmail.com">林宜萱｜招待</option>
+        <option value="YOUR_GMAIL+yicheng@gmail.com">王以誠｜招待</option>
+        <option value="YOUR_GMAIL+xianting@gmail.com">謝獻霆｜招待</option>
       </select>
     </div>
     <div><label for="quickPassword">原本的登入密碼</label><input id="quickPassword" type="password" autocomplete="current-password" required></div>
