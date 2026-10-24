@@ -32,6 +32,40 @@
     }
     if(!grid.childElementCount){const empty=document.createElement('p');empty.textContent='找不到符合的桌次或賓客。';grid.append(empty);}
   }
+  // Export the full authorized dataset, independent of the on-screen search filter.
+  // Escape formula-like cells to prevent spreadsheet formula injection.
+  function csvCell(value){
+    let str=String(value ?? '');
+    if (/^[\s\u0000-\u001f]*[=+@-]/.test(str)) str="'"+str;
+    return '"'+str.replace(/"/g,'""')+'"';
+  }
+  async function exportCsv(){
+    const btn=$('exportCsv');btn.disabled=true;
+    try{
+      // Fetch fresh data with the same admin-only RPC used by the overview.
+      const {data,error}=await db.rpc('admin_wedding_table_guests');
+      if(error)throw error;
+      const rows=Array.isArray(data)?data:[];
+      const ordered=[...rows].sort((a,b)=>number(a.table_number)-number(b.table_number)||String(a.guest_name||'').localeCompare(String(b.guest_name||''),'zh-Hant'));
+      const header=['桌次','賓客姓名','預計人數','已報到人數','報到狀態'];
+      const records=ordered.map(g=>[
+        g.table_number??'',g.guest_name??'',number(g.expected_count),
+        g.is_checked_in?number(g.checked_in_count):0,g.is_checked_in?'已報到':'未報到'
+      ]);
+      // Include an empty reserve table row when no guests are assigned to table 30.
+      if(!ordered.some(g=>number(g.table_number)===30)) records.push([30,'（預備桌／尚未安排）',0,0,'']);
+      const csv='\uFEFF'+[header,...records].map(r=>r.map(csvCell).join(',')).join('\r\n');
+      const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+      const url=URL.createObjectURL(blob);
+      const link=document.createElement('a');
+      const now=new Date();const stamp=[now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('');
+      link.href=url;link.download=`Chill_Lily_全桌次_${stamp}.csv`;
+      document.body.appendChild(link);link.click();link.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),1500);
+      status(`已匯出 ${records.length} 筆資料（含空白預備桌）。`);
+    }catch(e){status('匯出失敗：'+(e?.message||String(e)),true);}
+    finally{btn.disabled=false;}
+  }
   async function refresh(){
     try{
       const {data,error}=await db.rpc('admin_wedding_table_guests');if(error)throw error;
@@ -44,7 +78,7 @@
     const {data,error:profileError}=await db.rpc('get_my_staff_profile');
     const p=Array.isArray(data)?data[0]:data;
     if(profileError||p?.staff_role!=='admin'){status('此頁僅供管理員查看，請改用管理員帳號登入。',true);return;}
-    $('content').classList.remove('hidden');$('filter').addEventListener('input',render);$('refresh').addEventListener('click',refresh);
+    $('content').classList.remove('hidden');$('filter').addEventListener('input',render);$('refresh').addEventListener('click',refresh);$('exportCsv').addEventListener('click',exportCsv);
     $('logout').addEventListener('click',async()=>{await db.auth.signOut();location.href='staff.html';});
     await refresh();setInterval(()=>{if(document.visibilityState==='visible')refresh();},30000);
   }

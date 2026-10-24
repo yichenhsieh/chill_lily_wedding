@@ -12,14 +12,14 @@ const errorText=e=>e?.message||String(e);
 const rpc=async(name,args={})=>{const {data,error}=await db.rpc(name,args);if(error)throw error;return data;};
 const number=v=>Number.isFinite(Number(v))?Number(v):0;
 const checkAuth=async()=>{
- const {data:{user},error}=await db.auth.getUser();if(error||!user){currentUser=null;staff=null;show('loginCard',true);show('workspace',false);show('logoutBtn',false);return;}
+ const {data:{user},error}=await db.auth.getUser();if(error||!user){currentUser=null;staff=null;show('loginCard',true);show('workspace',false);show('logoutBtn',false);show('adminTabs',false);return;}
  currentUser=user;
  try{const profiles=await rpc('get_my_staff_profile');const p=Array.isArray(profiles)?profiles[0]:profiles;
  if(!p||!['admin','reception'].includes(p.staff_role))throw new Error('此帳號沒有有效的婚禮工作人員權限。');
- staff=p;show('loginCard',false);show('workspace',true);show('logoutBtn',true);$('staffName').textContent=p.display_name+' · '+(p.staff_role==='admin'?'管理員':'招待');
+ staff=p;show('loginCard',false);show('workspace',true);show('logoutBtn',true);show('adminTabs',page==='staff'&&p.staff_role==='admin');$('staffName').textContent=p.display_name+' · '+(p.staff_role==='admin'?'管理員':'招待');
  if(page==='dashboard'&&p.staff_role!=='admin'){show('workspace',false);setStatus('即時看板僅開放管理員查看。',true);return;}
  setStatus('登入成功',false,true);if(page==='dashboard'){await refreshDashboard();startDashboardRefresh();}
- }catch(e){show('loginCard',false);show('workspace',false);show('logoutBtn',true);setStatus(errorText(e),true);}
+ }catch(e){show('loginCard',false);show('workspace',false);show('logoutBtn',true);show('adminTabs',false);setStatus(errorText(e),true);}
 };
 const login=async(e)=>{e.preventDefault();$('loginBtn').disabled=true;try{const {error}=await db.auth.signInWithPassword({email:val('email'),password:$('password').value});if(error)throw error;await checkAuth();}catch(e){setStatus(errorText(e),true);}finally{$('loginBtn').disabled=false;}};
 // Name + existing Supabase password. Email aliases are public identifiers, never passwords.
@@ -133,7 +133,7 @@ const init=async()=>{if(!cfg?.supabasePublishableKey||cfg.supabasePublishableKey
  $('tokenForm').addEventListener('submit',async e=>{e.preventDefault();try{await findByToken(val('tokenInput'));}catch(err){setStatus(errorText(err),true);}});
  $('checkinBtn').addEventListener('click',checkin);$('seatBtn').addEventListener('click',changeSeat);$('scanBtn').addEventListener('click',startScanner);$('stopScanBtn').addEventListener('click',stopScanner);
  }else{$('refreshBtn').addEventListener('click',refreshDashboard);}
- db.auth.onAuthStateChange((event)=>{if(event==='SIGNED_OUT'){stopScanner();stopDashboardRefresh();currentUser=null;staff=null;show('loginCard',true);show('workspace',false);show('logoutBtn',false);}});
+ db.auth.onAuthStateChange((event)=>{if(event==='SIGNED_OUT'){stopScanner();stopDashboardRefresh();currentUser=null;staff=null;show('loginCard',true);show('workspace',false);show('logoutBtn',false);show('adminTabs',false);}});
  await checkAuth();
 };
 window.addEventListener('pagehide',()=>{stopScanner();stopDashboardRefresh();});
